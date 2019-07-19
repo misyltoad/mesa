@@ -11186,5 +11186,18 @@ typedef void <name>CAMetalLayer</name>;
                 <enum value="&quot;VK_EXT_extension_284&quot;"              name="VK_EXT_extension_284"/>
             </require>
         </extension>
+        <extension name="VK_JOSH_depth_bias_info" number="291" type="device" author="JOSH" contact="Joshua Ashton" supported="vulkan">
+            <require>
+                <enum value="1"                                                     name="VK_JOSH_depth_bias_info"/>
+                <enum value="1"                                                     name="VK_JOSH_DEPTH_BIAS_INFO_SPEC_VERSION"/>
+                <enum value="&quot;VK_JOSH_DEPTH_BIAS_INFO_EXTENSION_NAME&quot;"    name="VK_JOSH_DEPTH_BIAS_INFO_EXTENSION_NAME"/>
+
+                <enum offset="0" extends="VkStructureType"                  name="VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_DEPTH_BIAS_CREATE_INFO_JOSH"/>
+                <enum offset="1" extends="VkStructureType"                  name="VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_BIAS_FEATURES_JOSH"/>
+
+                <type name="VkPipelineRasterizationDepthBiasCreateInfoJOSH"/>
+                <type name="VkPhysicalDeviceDepthBiasFeaturesJOSH"/>
+            </require>
+        </extension>
     </extensions>
 </registry>
