@@ -1452,11 +1452,18 @@ struct radv_ia_multi_vgt_param_helpers {
 	bool partial_vs_wave;
 };
 
+struct radv_depth_bias_state {
+	bool  use_user_scale;
+	float user_scale;
+	bool  offset_units_unscaled;
+};
+
 #define SI_GS_PER_ES 128
 
 struct radv_pipeline {
 	struct radv_device *                          device;
 	struct radv_dynamic_state                     dynamic_state;
+	struct radv_depth_bias_state                  depth_bias_state;
 
 	struct radv_pipeline_layout *                 layout;
 

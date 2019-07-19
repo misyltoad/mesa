@@ -988,6 +988,13 @@ void radv_GetPhysicalDeviceFeatures2(
 			features->uniformBufferStandardLayout = true;
 			break;
 		}
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_BIAS_FEATURES_JOSH: {
+			VkPhysicalDeviceDepthBiasFeaturesJOSH *features =
+				(VkPhysicalDeviceDepthBiasFeaturesJOSH *)ext;
+			features->modeFloat = true;
+			features->userScale = true;
+			break;
+		}
 		default:
 			break;
 		}

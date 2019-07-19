@@ -1224,8 +1224,12 @@ static void
 radv_emit_depth_bias(struct radv_cmd_buffer *cmd_buffer)
 {
 	struct radv_dynamic_state *d = &cmd_buffer->state.dynamic;
+	struct radv_pipeline *pipeline = cmd_buffer->state.pipeline;
 	unsigned slope = fui(d->depth_bias.slope * 16.0f);
-	unsigned bias = fui(d->depth_bias.bias * cmd_buffer->state.offset_scale);
+	float scale = (pipeline && pipeline->depth_bias_state.use_user_scale)
+				? pipeline->depth_bias_state.user_scale
+				: cmd_buffer->state.offset_scale;
+	unsigned bias = fui(d->depth_bias.bias * scale);
 
 
 	radeon_set_context_reg_seq(cmd_buffer->cs,
@@ -1472,8 +1476,13 @@ radv_emit_fb_ds_state(struct radv_cmd_buffer *cmd_buffer,
 	/* Update the ZRANGE_PRECISION value for the TC-compat bug. */
 	radv_update_zrange_precision(cmd_buffer, ds, image, layout, true);
 
+	struct radv_pipeline *pipeline = cmd_buffer->state.pipeline;
+
+	uint32_t poly_offset = (pipeline && pipeline->depth_bias_state.offset_units_unscaled)
+		? 0 : ds->pa_su_poly_offset_db_fmt_cntl;
+
 	radeon_set_context_reg(cmd_buffer->cs, R_028B78_PA_SU_POLY_OFFSET_DB_FMT_CNTL,
-			       ds->pa_su_poly_offset_db_fmt_cntl);
+			       poly_offset);
 }
 
 /**

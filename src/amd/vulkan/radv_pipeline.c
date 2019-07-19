@@ -4315,6 +4315,19 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	/* prim vertex count will need TESS changes */
 	pipeline->graphics.prim_vertex_count = prim_size_table[prim];
 
+	const VkPipelineRasterizationDepthBiasCreateInfoJOSH *depth_bias_info =
+		vk_find_struct_const(pCreateInfo->pRasterizationState->pNext, PIPELINE_RASTERIZATION_DEPTH_BIAS_CREATE_INFO_JOSH);
+	
+	if (depth_bias_info) {
+		pipeline->depth_bias_state.use_user_scale        = depth_bias_info->useDepthBiasScale;
+		pipeline->depth_bias_state.user_scale            = depth_bias_info->depthBiasScale;
+		pipeline->depth_bias_state.offset_units_unscaled = depth_bias_info->depthBiasMode == VK_DEPTH_BIAS_MODE_FLOAT_JOSH;
+	} else {
+		pipeline->depth_bias_state.use_user_scale        = false;
+		pipeline->depth_bias_state.user_scale            = 1.0f;
+		pipeline->depth_bias_state.offset_units_unscaled = false;
+	}
+
 	radv_pipeline_init_dynamic_state(pipeline, pCreateInfo);
 
 	/* Ensure that some export memory is always allocated, for two reasons:
