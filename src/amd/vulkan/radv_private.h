@@ -693,6 +693,22 @@ struct radv_bo_list {
 	pthread_mutex_t mutex;
 };
 
+#define RADV_BORDER_COLOR_COUNT 	  4096
+#define RADV_BORDER_COLOR_SIZE        sizeof(VkClearColorValue)
+#define RADV_BORDER_COLOR_BUFFER_SIZE (RADV_BORDER_COLOR_SIZE * RADV_BORDER_COLOR_SIZE)
+
+struct radv_device_border_color_data {
+	VkClearColorValue        colors_cpu_copy[RADV_BORDER_COLOR_COUNT];
+	uint32_t 			     refs[RADV_BORDER_COLOR_COUNT];
+
+	struct radeon_winsys_bo *bo;
+	VkClearColorValue       *colors_gpu_ptr;
+
+	/* Mutex is required to guarantee vkCreateSampler thread safety
+	 * given that we are uploading to a buffer and refcounting colors */
+	pthread_mutex_t          mutex;
+};
+
 struct radv_device {
 	VK_LOADER_DATA                              _loader_data;
 
@@ -763,6 +779,8 @@ struct radv_device {
 
 	/* Whether anisotropy is forced with RADV_TEX_ANISO (-1 is disabled). */
 	int force_aniso;
+
+	struct radv_device_border_color_data border_color_data;
 };
 
 struct radv_device_memory {
@@ -1259,7 +1277,7 @@ struct radv_image_view;
 
 bool radv_cmd_buffer_uses_mec(struct radv_cmd_buffer *cmd_buffer);
 
-void si_emit_graphics(struct radv_physical_device *physical_device,
+void si_emit_graphics(struct radv_device *device,
 		      struct radeon_cmdbuf *cs);
 void si_emit_compute(struct radv_physical_device *physical_device,
 		      struct radeon_cmdbuf *cs);
@@ -1983,6 +2001,7 @@ radv_image_extent_compare(const struct radv_image *image,
 
 struct radv_sampler {
 	uint32_t state[4];
+	uint32_t border_color_slot;
 	struct radv_sampler_ycbcr_conversion *ycbcr_sampler;
 };
 

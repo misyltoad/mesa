@@ -1484,6 +1484,12 @@ void radv_GetPhysicalDeviceProperties2(
 			properties->uniformTexelBufferOffsetSingleTexelAlignment = true;
 			break;
 		}
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_PROPERTIES_EXT: {
+			VkPhysicalDeviceCustomBorderColorPropertiesEXT *properties =
+				(VkPhysicalDeviceCustomBorderColorPropertiesEXT *)ext;
+			properties->maxUniqueCustomBorderColors = RADV_BORDER_COLOR_COUNT;
+			break;
+		}
 		default:
 			break;
 		}
@@ -2041,6 +2047,22 @@ VkResult radv_CreateDevice(
 
 	radv_device_init_msaa(device);
 
+	/* If the border color extension is enabled, let's create the buffer we need. */
+	if (device->enabled_extensions.EXT_custom_border_color) {
+		device->border_color_data.bo = device->ws->buffer_create(device->ws,
+									 RADV_BORDER_COLOR_BUFFER_SIZE,
+									 4096,
+									 RADV_MEM_TYPE_VRAM_CPU_ACCESS,
+									 RADEON_FLAG_CPU_ACCESS | RADEON_FLAG_NO_INTERPROCESS_SHARING | RADEON_FLAG_PREFER_LOCAL_BO,
+									 RADV_BO_PRIORITY_SCRATCH);
+
+		if (device->border_color_data.bo == NULL)
+			fprintf(stderr, "radv: Failed to create border color buffer");
+
+		device->border_color_data.colors_gpu_ptr = device->ws->buffer_map(device->border_color_data.bo);
+		pthread_mutex_init(&device->border_color_data.mutex, NULL);
+	}
+
 	for (int family = 0; family < RADV_MAX_QUEUE_FAMILIES; ++family) {
 		device->empty_cs[family] = device->ws->cs_create(device->ws, family);
 		switch (family) {
@@ -2098,6 +2120,12 @@ fail:
 	if (device->gfx_init)
 		device->ws->buffer_destroy(device->gfx_init);
 
+	if (device->border_color_data.bo) {
+		device->ws->buffer_destroy(device->border_color_data.bo);
+
+		pthread_mutex_destroy(&device->border_color_data.mutex);
+	}
+
 	for (unsigned i = 0; i < RADV_MAX_QUEUE_FAMILIES; i++) {
 		for (unsigned q = 0; q < device->queue_count[i]; q++)
 			radv_queue_finish(&device->queues[i][q]);
@@ -2123,6 +2151,12 @@ void radv_DestroyDevice(
 
 	if (device->gfx_init)
 		device->ws->buffer_destroy(device->gfx_init);
+
+	if (device->border_color_data.bo) {
+		device->ws->buffer_destroy(device->border_color_data.bo);
+
+		pthread_mutex_destroy(&device->border_color_data.mutex);
+	}
 
 	for (unsigned i = 0; i < RADV_MAX_QUEUE_FAMILIES; i++) {
 		for (unsigned q = 0; q < device->queue_count[i]; q++)
@@ -2600,8 +2634,7 @@ radv_init_graphics_state(struct radeon_cmdbuf *cs, struct radv_queue *queue)
 
 		radv_cs_add_buffer(device->ws, cs, device->gfx_init);
 	} else {
-		struct radv_physical_device *physical_device = device->physical_device;
-		si_emit_graphics(physical_device, cs);
+		si_emit_graphics(device, cs);
 	}
 }
 
@@ -5065,6 +5098,8 @@ radv_tex_bordercolor(VkBorderColor bcolor)
 	case VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE:
 	case VK_BORDER_COLOR_INT_OPAQUE_WHITE:
 		return V_008F3C_SQ_TEX_BORDER_COLOR_OPAQUE_WHITE;
+	case VK_BORDER_COLOR_CUSTOM_EXT:
+		return V_008F3C_SQ_TEX_BORDER_COLOR_REGISTER;
 	default:
 		break;
 	}
@@ -5115,7 +5150,68 @@ radv_get_max_anisotropy(struct radv_device *device,
 	return 0;
 }
 
+static uint32_t
+radv_ref_border_color(struct radv_device                            *device,
+		      const VkSamplerCustomBorderColorCreateInfoEXT *pCreateInfo) {
+	uint32_t i;
+
+	pthread_mutex_lock(&device->border_color_data.mutex);
+	/* Firstly, try to find if we have this border color anywhere... */
+	for (i = 0; i < RADV_BORDER_COLOR_COUNT; i++) {
+		/* Need to have a ref AND the right color to guarantee
+		 * the state the buffer is in on the GPU. */
+		if (device->border_color_data.refs[i]
+		&& !memcmp(&device->border_color_data.colors_cpu_copy[i], &pCreateInfo->borderColor, RADV_BORDER_COLOR_SIZE))
+			break;
+	}
+
+	bool upload = false;
+	if (i == RADV_BORDER_COLOR_COUNT) {
+		/* Didn't find anything, we need to take up a new slot...
+		 * So find where refs == 0 */
+		for (i = 0; i < RADV_BORDER_COLOR_COUNT; i++) {
+			if (!device->border_color_data.refs[i])
+				break;
+		}
+
+		/* This also means we need to do an upload! */
+		upload = true;
+	}
+
+	if (i == RADV_BORDER_COLOR_COUNT) {
+		/* Clearly we have no slots available.
+		 * TODO(Josh):
+		 * We don't have a definition for this behaviour yet
+		 * So we're just going to fail the sampler creation.
+		 * (fails if return value == RADV_BORDER_COLOR_COUNT) */
+
+		pthread_mutex_unlock(&device->border_color_data.mutex);
+		return i;
+	}
+
+	device->border_color_data.refs[i]++;
+
+	if (upload) {
+		/* Copy to our little table. */
+		memcpy(&device->border_color_data.colors_cpu_copy[i], &pCreateInfo->borderColor, RADV_BORDER_COLOR_SIZE);
+		/* Copy to the GPU wrt endian-ness. */
+		util_memcpy_cpu_to_le32(&device->border_color_data.colors_gpu_ptr[i], &pCreateInfo->borderColor, RADV_BORDER_COLOR_SIZE);
+	}
+
+	pthread_mutex_unlock(&device->border_color_data.mutex);
+
+	return i;
+}
+
 static void
+radv_release_border_color(struct radv_device     *device,
+			  uint32_t                slot) {
+	pthread_mutex_lock(&device->border_color_data.mutex);
+	device->border_color_data.refs[slot]--;
+	pthread_mutex_unlock(&device->border_color_data.mutex);
+}
+
+static VkResult
 radv_init_sampler(struct radv_device *device,
 		  struct radv_sampler *sampler,
 		  const VkSamplerCreateInfo *pCreateInfo)
@@ -5151,7 +5247,28 @@ radv_init_sampler(struct radv_device *device,
 			     S_008F38_XY_MIN_FILTER(radv_tex_filter(pCreateInfo->minFilter, max_aniso)) |
 			     S_008F38_MIP_FILTER(radv_tex_mipfilter(pCreateInfo->mipmapMode)) |
 			     S_008F38_MIP_POINT_PRECLAMP(0));
-	sampler->state[3] = (S_008F3C_BORDER_COLOR_PTR(0) |
+
+	sampler->border_color_slot = RADV_BORDER_COLOR_COUNT;
+	uint32_t border_color_ptr = 0;
+
+	if (pCreateInfo->borderColor == VK_BORDER_COLOR_CUSTOM_EXT) {
+		const VkSamplerCustomBorderColorCreateInfoEXT *custom_border_color =
+			vk_find_struct_const(pCreateInfo->pNext,
+						SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT);
+
+		if (custom_border_color) {
+			sampler->border_color_slot = radv_ref_border_color(device, custom_border_color);
+			border_color_ptr = sampler->border_color_slot;
+
+			/* Did we fail to find a slot? Then the sampler failed init. */
+			if (sampler->border_color_slot == RADV_BORDER_COLOR_COUNT) {
+				/* TODO(Josh): Update when error case defined in spec */
+				return VK_ERROR_TOO_MANY_OBJECTS;
+			}
+		}
+	}
+
+	sampler->state[3] = (S_008F3C_BORDER_COLOR_PTR(border_color_ptr) |
 			     S_008F3C_BORDER_COLOR_TYPE(radv_tex_bordercolor(pCreateInfo->borderColor)));
 
 	if (device->physical_device->rad_info.chip_class >= GFX10) {
@@ -5162,6 +5279,8 @@ radv_init_sampler(struct radv_device *device,
 			S_008F38_FILTER_PREC_FIX(1) |
 			S_008F38_ANISO_OVERRIDE_GFX6(device->physical_device->rad_info.chip_class >= GFX8);
 	}
+
+	return VK_SUCCESS;
 }
 
 VkResult radv_CreateSampler(
@@ -5184,7 +5303,12 @@ VkResult radv_CreateSampler(
 	if (!sampler)
 		return vk_error(device->instance, VK_ERROR_OUT_OF_HOST_MEMORY);
 
-	radv_init_sampler(device, sampler, pCreateInfo);
+	VkResult initResult = radv_init_sampler(device, sampler, pCreateInfo);
+	/* Passthrough the init result if it failed. */
+	if (initResult != VK_SUCCESS) {
+		vk_free2(&device->alloc, pAllocator, sampler);
+		return initResult;
+	}
 
 	sampler->ycbcr_sampler = ycbcr_conversion ? radv_sampler_ycbcr_conversion_from_handle(ycbcr_conversion->conversion): NULL;
 	*pSampler = radv_sampler_to_handle(sampler);
@@ -5202,6 +5326,12 @@ void radv_DestroySampler(
 
 	if (!sampler)
 		return;
+
+	if (sampler->border_color_slot != RADV_BORDER_COLOR_COUNT) {
+		/* We need to free up the slot this used. */
+		radv_release_border_color(device, sampler->border_color_slot);
+	}
+
 	vk_free2(&device->alloc, pAllocator, sampler);
 }
 

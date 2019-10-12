@@ -156,9 +156,11 @@ si_set_raster_config(struct radv_physical_device *physical_device,
 }
 
 void
-si_emit_graphics(struct radv_physical_device *physical_device,
+si_emit_graphics(struct radv_device *device,
 		 struct radeon_cmdbuf *cs)
 {
+	struct radv_physical_device *physical_device = device->physical_device;
+
 	bool has_clear_state = physical_device->rad_info.has_clear_state;
 	int i;
 
@@ -426,6 +428,15 @@ si_emit_graphics(struct radv_physical_device *physical_device,
 		radeon_set_context_reg(cs, R_028C5C_VGT_OUT_DEALLOC_CNTL, 16);
 	}
 
+	if (device->border_color_data.bo) {
+		uint64_t border_color_va = radv_buffer_get_va(device->border_color_data.bo);
+		radeon_set_context_reg(cs, R_028080_TA_BC_BASE_ADDR, border_color_va >> 8);
+		if (physical_device->rad_info.chip_class >= GFX7) {
+			radeon_set_context_reg(cs, R_028084_TA_BC_BASE_ADDR_HI,
+								S_028084_ADDRESS(border_color_va >> 40));
+		}
+	}
+
 	if (physical_device->rad_info.chip_class >= GFX9) {
 		radeon_set_context_reg(cs, R_028C48_PA_SC_BINNER_CNTL_1,
 				       S_028C48_MAX_ALLOC_COUNT(physical_device->rad_info.pbb_max_alloc_count - 1) |
@@ -472,7 +483,7 @@ cik_create_gfx_config(struct radv_device *device)
 	if (!cs)
 		return;
 
-	si_emit_graphics(device->physical_device, cs);
+	si_emit_graphics(device, cs);
 
 	while (cs->cdw & 7) {
 		if (device->physical_device->rad_info.gfx_ib_pad_with_type2)
