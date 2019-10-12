@@ -4205,6 +4205,16 @@ typedef void <name>CAMetalLayer</name>;
             <member noautovalidity="true"><type>void</type>*        <name>pNext</name></member>
             <member><type>VkBool32</type>                           <name>deviceCoherentMemory</name></member>
         </type>
+        <type category="struct" name="VkSamplerCustomBorderColorCreateInfoEXT" structextends="VkSamplerCreateInfo">
+            <member values="VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT"><type>VkStructureType</type> <name>sType</name></member>
+            <member noautovalidity="true"><type>void</type>*                                                            <name>pNext</name></member>
+            <member><type>VkClearColorValue</type>                                                                      <name>borderColor</name></member>
+        </type>
+        <type category="struct" name="VkPhysicalDeviceCustomBorderColorPropertiesEXT" structextends="VkPhysicalDeviceProperties2" returnedonly="true">
+            <member values="VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_PROPERTIES_EXT"><type>VkStructureType</type> <name>sType</name></member>
+            <member noautovalidity="true"><type>void</type>*                                                                   <name>pNext</name></member>
+            <member><type>uint32_t</type>                                                                                      <name>maxUniqueCustomBorderColors</name></member>
+        </type>
     </types>
 
     <comment>Vulkan enumerant (token) definitions</comment>
@@ -11593,10 +11603,15 @@ typedef void <name>CAMetalLayer</name>;
                 <enum value="&quot;VK_NVX_extension_287&quot;"              name="VK_NVX_EXTENSION_287_EXTENSION_NAME"/>
             </require>
         </extension>
-        <extension name="VK_NVX_extension_288" number="288" author="NVX" contact="Liam Middlebrook @liam-middlebrook" supported="disabled">
+        <extension name="VK_EXT_custom_border_color" number="288" type="device" author="EXT" contact="Liam Middlebrook @liam-middlebrook" supported="vulkan">
             <require>
-                <enum value="0"                                             name="VK_NVX_EXTENSION_288_SPEC_VERSION"/>
-                <enum value="&quot;VK_NVX_extension_288&quot;"              name="VK_NVX_EXTENSION_288_EXTENSION_NAME"/>
+                <enum value="1"                                             name="VK_EXT_CUSTOM_BORDER_COLOR_SPEC_VERSION"/>
+                <enum value="&quot;VK_EXT_custom_border_color&quot;"        name="VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME"/>
+                <enum offset="0" extends="VkStructureType"                  name="VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT"/>
+                <enum offset="1" extends="VkStructureType"                  name="VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_PROPERTIES_EXT"/>
+                <enum offset="2" extends="VkBorderColor"                    name="VK_BORDER_COLOR_CUSTOM_EXT"/>
+                <type name="VkSamplerCustomBorderColorCreateInfoEXT"/>
+                <type name="VkPhysicalDeviceCustomBorderColorPropertiesEXT"/>
             </require>
         </extension>
         <extension name="VK_EXT_extension_289" number="289" author="EXT" contact="Jan-Harald Fredriksen @janharaldfredriksen-arm" supported="disabled">
